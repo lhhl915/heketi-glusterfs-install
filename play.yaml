@@ -1,0 +1,86 @@
+---
+- hosts: 'glusterfs-node'
+  tasks:
+    - name: 'add glusterfs server repo'
+      yum_repository:
+        name: 'glusterfs-node'
+        baseurl: '{{ glusterfs_repo }}'
+        description: 'add glusterfs server repo'
+        gpgcheck: no
+    - name: 'install glusterfs package'
+      yum:
+        name={{item}}
+        state=latest 
+      with_items:
+        - wget 
+        - nfs-utils 
+        - attr 
+        - iputils 
+        - iproute   
+        - openssh-server 
+        - openssh-clients 
+        - ntp 
+        - rsync 
+        - tar 
+        - cronie 
+        - sudo 
+        - xfsprogs
+        - glusterfs 
+        - glusterfs-server
+        - glusterfs-geo-replication
+
+    - name: 'start glusterd service'
+      service:
+        name='glusterd'
+        state='started'
+        enabled=yes
+
+- hosts: 'heketi-server'
+  tasks:
+    - name: 'add heketi server repo'
+      yum_repository:
+        name: 'heketi-server'
+        baseurl: "{{heketi_repo}}"
+        description: "heketi-server" 
+        gpgcheck: no
+
+    - name: copy package to host
+      copy: src=files/ dest=/tmp/ 
+     
+    - name: 'install heketi package(rpm)'
+      raw: cd /tmp/ && rpm -ivh heketi-3.0.0-1.el7.centos.x86_64.rpm heketi-client-3.0.0-1.el7.centos.x86_64.rpm
+
+    - name: 'copy heketi-key'
+      copy: 
+        src={{heketi_key}} 
+        dest=/etc/heketi/id_rsa
+        owner=heketi 
+        group=heketi
+      when: hostvars['{{inventory_hostname}}']['id'] == "master"
+
+    - name: 'set heketi param'
+      template: src=template/heketi.json.j2 dest=/etc/heketi/heketi.json
+      when: hostvars['{{inventory_hostname}}']['id'] == "master"
+
+    - name: 'chown heketi db path'
+      file:
+        path="{{heketi_db_path}}"
+        owner=heketi
+        group=heketi 
+        state=directory
+
+    - name: 'start heketi service'   
+      service: 
+        name=heketi 
+        state=started
+      when: hostvars['{{inventory_hostname}}']['id'] == "master"
+
+    - name: 'create heketi topology.json'
+      template:
+        src=template/topology.json.j2
+        dest=/etc/heketi/topology.json
+      when: hostvars['{{inventory_hostname}}']['id'] == "master"
+
+    - name: 'create glusterfs cluster'
+      shell: heketi-cli -s http://localhost:8080 topology load --json=/etc/heketi/topology.json
+      when: hostvars['{{inventory_hostname}}']['id'] == "master"
