@@ -1,5 +1,6 @@
 ---
 - hosts: 'glusterfs-node'
+  sudo: yes
   tasks:
     - name: 'add glusterfs server repo'
       yum_repository:
@@ -36,6 +37,7 @@
         enabled=yes
 
 - hosts: 'heketi-server'
+  sudo: yes
   tasks:
     - name: 'add heketi server repo'
       yum_repository:
@@ -46,41 +48,46 @@
 
     - name: copy package to host
       copy: src=files/ dest=/tmp/ 
+
+    - shell: rpm -q heketi-client-3.0.0-1.el7.centos.x86_64
+      register: result
+      ignore_errors: True
      
     - name: 'install heketi package(rpm)'
       raw: cd /tmp/ && rpm -ivh heketi-3.0.0-1.el7.centos.x86_64.rpm heketi-client-3.0.0-1.el7.centos.x86_64.rpm
+      when: result|failed
 
-    - name: 'copy heketi-key'
+    - name: copy heketi-key
       copy: 
         src={{heketi_key}} 
         dest=/etc/heketi/id_rsa
         owner=heketi 
         group=heketi
-      when: hostvars['{{inventory_hostname}}']['id'] == "master"
+      when: hostvars[inventory_hostname]['id'] == "master"
 
-    - name: 'set heketi param'
+    - name: set heketi param
       template: src=template/heketi.json.j2 dest=/etc/heketi/heketi.json
-      when: hostvars['{{inventory_hostname}}']['id'] == "master"
+      when: hostvars[inventory_hostname]['id'] == "master"
 
-    - name: 'chown heketi db path'
+    - name: chown heketi db path
       file:
         path="{{heketi_db_path}}"
         owner=heketi
         group=heketi 
         state=directory
 
-    - name: 'start heketi service'   
+    - name: start heketi service
       service: 
         name=heketi 
         state=started
-      when: hostvars['{{inventory_hostname}}']['id'] == "master"
+      when: hostvars[inventory_hostname]['id'] == "master"
 
-    - name: 'create heketi topology.json'
+    - name: create heketi topology.json
       template:
         src=template/topology.json.j2
         dest=/etc/heketi/topology.json
-      when: hostvars['{{inventory_hostname}}']['id'] == "master"
+      when: hostvars[inventory_hostname]['id'] == "master"
 
     - name: 'create glusterfs cluster'
       shell: heketi-cli -s http://localhost:8080 topology load --json=/etc/heketi/topology.json
-      when: hostvars['{{inventory_hostname}}']['id'] == "master"
+      when: hostvars[inventory_hostname]['id'] == "master"
